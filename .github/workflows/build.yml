@@ -243,13 +243,6 @@ jobs:
             }
           }
 
-      - name: Apply Smooth Scroll Patch
-        shell: powershell
-        run: |
-          cd "$env:TBUILD\$env:REPO_NAME"
-          Write-Host "Applying smooth scroll patch..."
-          git apply --directory=Telegram/lib_ui --ignore-whitespace patches/smooth_scroll.patch
-
       - name: Build Desktop
         run: |
           cd %TBUILD%\%REPO_NAME%\Telegram
