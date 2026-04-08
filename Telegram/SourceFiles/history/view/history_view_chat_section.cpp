@@ -95,8 +95,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <QtCore/QMimeData>
 
 // AyuGram includes
-#include "ayu/ayu_settings.h"
-#include "ayu/utils/telegram_helpers.h"
 #include "ayu/features/message_shot/message_shot.h"
 #include "base/unixtime.h"
 
@@ -1420,13 +1418,6 @@ void ChatWidget::sendVoice(const ComposeControls::VoiceToSend &data) {
 }
 
 void ChatWidget::send(Api::SendOptions options) {
-	const auto &ghost = AyuSettings::ghost(&controller()->session());
-
-	auto lastMessage = _history->lastMessage();
-	if (!ghost.sendReadMessages() && ghost.markReadAfterAction() && lastMessage) {
-		readHistory(lastMessage);
-	}
-
 	if (!options.scheduled && showSlowmodeError()) {
 		return;
 	}
@@ -3132,7 +3123,8 @@ void ChatWidget::listMarkContentsRead(
 }
 
 MessagesBarData ChatWidget::listMessagesBar(
-		const std::vector<not_null<Element*>> &elements) {
+		const std::vector<not_null<Element*>> &elements,
+		bool markLastAsRead) {
 	if ((!_sublist && !_replies) || elements.empty()) {
 		return {};
 	}
@@ -3143,7 +3135,15 @@ MessagesBarData ChatWidget::listMessagesBar(
 	for (auto i = 0, count = int(elements.size()); i != count; ++i) {
 		const auto item = elements[i]->data();
 		if (item->isRegular() && item->id > till) {
-			if (item->out() || (_replies && !item->replyToId())) {
+			if (markLastAsRead
+				|| item->out()
+				|| (_replies && !item->replyToId())) {
+				if (markLastAsRead) {
+					if (item->isUnreadMention() && !item->isUnreadMedia()) {
+						session().api().markContentsRead(item);
+					}
+					item->markClientSideAsRead();
+				}
 				if (_replies) {
 					_replies->readTill(item);
 				} else {

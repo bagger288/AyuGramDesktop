@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "ui/controls/compose_ai_button_factory.h"
 
+#include "base/options.h"
 #include "boxes/compose_ai_box.h"
 #include "history/view/controls/history_view_compose_ai_button.h"
 #include "lang/lang_keys.h"
@@ -23,10 +24,18 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 namespace Ui {
 
+const char kOptionHideAiButton[] = "hide-ai-button";
+
+base::options::toggle HideAiButtonOption({
+	.id = kOptionHideAiButton,
+	.name = "Hide AI button",
+	.description = "Hide the AI Tools button in message compose fields.",
+});
+
 bool HasEnoughLinesForAi(
 		not_null<Main::Session*> session,
 		not_null<Ui::InputField*> field) {
-	if (!AyuSettings::getInstance().showCocoonAiButtonInMessageField()
+	if (!AyuSettings::getInstance().showAiEditorButtonInMessageField()
 		|| session->appConfig().aiComposeStyles().empty()) {
 		return false;
 	}
@@ -111,7 +120,7 @@ auto SetupCaptionAiButton(SetupCaptionAiButtonArgs &&args)
 		field->heightChanges() | rpl::to_empty,
 		field->changes() | rpl::to_empty,
 		field->shownValue() | rpl::to_empty,
-		AyuSettings::getInstance().showCocoonAiButtonInMessageFieldChanges()
+		AyuSettings::getInstance().showAiEditorButtonInMessageFieldChanges()
 			| rpl::to_empty
 	) | rpl::on_next([=] {
 		updateVisibility();

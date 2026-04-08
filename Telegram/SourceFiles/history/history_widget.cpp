@@ -54,6 +54,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/painter.h"
 #include "ui/rect.h"
 #include "ui/power_saving.h"
+#include "ui/controls/compose_ai_button_factory.h"
 #include "ui/controls/emoji_button.h"
 #include "ui/controls/send_button.h"
 #include "ui/controls/send_as_button.h"
@@ -100,6 +101,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/history_drag_area.h"
 #include "history/history_inner_widget.h"
 #include "history/history_item_components.h"
+#include "history/history_streamed_drafts.h"
 #include "history/history_unread_things.h"
 #include "history/admin_log/history_admin_log_section.h"
 #include "history/view/controls/history_view_characters_limit.h"
@@ -540,7 +542,7 @@ HistoryWidget::HistoryWidget(
 			_ttlInfo->setVisible(!hide && settings.showAutoDeleteButtonInMessageField());
 		}
 		if (_giftToUser) {
-			_giftToUser->setVisible(!hide);
+			_giftToUser->setVisible(!hide && settings.showGiftButtonInMessageField());
 		}
 		if (_scheduled) {
 			_scheduled->setVisible(!hide);
@@ -660,6 +662,15 @@ HistoryWidget::HistoryWidget(
 		const auto item = view->data();
 		const auto history = item->history();
 		if (item->mainView() == view
+			&& (history == _history || history == _migrated)) {
+			updateHistoryGeometry();
+		}
+	}, lifetime());
+	session().data().viewHeightAdjusted(
+	) | rpl::on_next([=](Data::Session::ViewHeightAdjusted data) {
+		const auto item = data.view->data();
+		const auto history = item->history();
+		if (item->mainView() == data.view
 			&& (history == _history || history == _migrated)) {
 			updateHistoryGeometry();
 		}
@@ -832,12 +843,14 @@ HistoryWidget::HistoryWidget(
 		AyuSettings::getInstance().showEmojiButtonInMessageFieldChanges() | rpl::to_empty,
 		AyuSettings::getInstance().showMicrophoneButtonInMessageFieldChanges() | rpl::to_empty,
 		AyuSettings::getInstance().showAutoDeleteButtonInMessageFieldChanges() | rpl::to_empty,
-		AyuSettings::getInstance().showCocoonAiButtonInMessageFieldChanges() | rpl::to_empty,
+		AyuSettings::getInstance().showGiftButtonInMessageFieldChanges() | rpl::to_empty,
+		AyuSettings::getInstance().showAiEditorButtonInMessageFieldChanges() | rpl::to_empty,
 		AyuSettings::getInstance().showAttachPopupChanges() | rpl::to_empty,
 		AyuSettings::getInstance().showEmojiPopupChanges() | rpl::to_empty,
 		AyuSettings::getInstance().channelBottomButtonChanges() | rpl::to_empty,
 		AyuSettings::getInstance().removeMessageTailChanges() | rpl::to_empty
 	) | rpl::on_next([=] {
+		refreshSendGiftToggle();
 		refreshAttachBotsMenu();
 		updateHistoryGeometry();
 		updateControlsVisibility();
@@ -2151,12 +2164,6 @@ void HistoryWidget::fileChosen(ChatHelpers::FileChosen &&data) {
 			Data::InsertCustomEmoji(_field.data(), data.document);
 		}
 	} else if (_history) {
-		const auto &ghost = AyuSettings::ghost(&controller()->session());
-		if (!ghost.sendReadMessages() && ghost.markReadAfterAction()) {
-			if (const auto lastMessage = history()->lastMessage()) {
-				readHistory(lastMessage);
-			}
-		}
 		controller()->sendingAnimation().appendSending(
 			data.messageSendingFrom);
 		const auto localId = data.messageSendingFrom.localId;
@@ -3414,6 +3421,8 @@ void HistoryWidget::refreshScheduledToggle() {
 
 void HistoryWidget::refreshSendGiftToggle() {
 	using Type = Api::DisallowedGiftType;
+
+	const auto &settings = AyuSettings::getInstance();
 	const auto user = _peer ? _peer->asUser() : nullptr;
 	const auto disallowed = user ? user->disallowedGiftTypes() : Type();
 	const auto all = Type::Premium
@@ -3425,6 +3434,7 @@ void HistoryWidget::refreshSendGiftToggle() {
 		&& !user->isServiceUser()
 		&& !user->isSelf()
 		&& !user->isBot()
+		&& settings.showGiftButtonInMessageField()
 		&& ((disallowed & Type::SendHide)
 			|| (session().user()->disallowedGiftTypes() & Type::SendHide)
 			|| Data::IsBirthdayToday(user->birthday()))
@@ -3783,7 +3793,9 @@ void HistoryWidget::updateControlsVisibility() {
 			}
 			if (_giftToUser) {
 				const auto was = _giftToUser->isVisible();
-				const auto now = (!_editMsgId) && (!hideExtraButtons);
+				const auto now = (!_editMsgId)
+					&& (!hideExtraButtons)
+					&& settings.showGiftButtonInMessageField();
 				if (was != now) {
 					_giftToUser->setVisible(now);
 					rightButtonsChanged = true;
@@ -4005,7 +4017,9 @@ void HistoryWidget::newItemAdded(not_null<HistoryItem*> item) {
 		}
 		return;
 	}
-	_itemRevealPending.emplace(item);
+	if (!item->history()->streamedDrafts().hasFor(item)) {
+		_itemRevealPending.emplace(item);
+	}
 }
 
 void HistoryWidget::maybeMarkReactionsRead(not_null<HistoryItem*> item) {
@@ -5069,13 +5083,6 @@ void HistoryWidget::sendVoice(const VoiceToSend &data) {
 }
 
 void HistoryWidget::send(Api::SendOptions options) {
-	const auto &ghost = AyuSettings::ghost(&controller()->session());
-
-	auto lastMessage = _history->lastMessage();
-	if (!ghost.sendReadMessages() && ghost.markReadAfterAction() && lastMessage) {
-		readHistory(lastMessage);
-	}
-
 	if (!_history) {
 		return;
 	} else if (_editMsgId) {
@@ -6075,8 +6082,6 @@ bool HistoryWidget::updateCmdStartShown() {
 			st::historyBotMenuButton);
 		orderWidgets();
 
-		_botMenu.button->setTextTransform(
-			Ui::RoundButton::TextTransform::NoTransform);
 		_botMenu.button->setFullRadius(true);
 		_botMenu.button->setClickedCallback([=] {
 			const auto user = _peer ? _peer->asUser() : nullptr;
@@ -6440,21 +6445,9 @@ bool HistoryWidget::fieldOrDisabledShown() const {
 }
 
 bool HistoryWidget::hasEnoughLinesForAi() const {
-	if (!_history
-		|| _voiceRecordBar->isActive()
-		|| !AyuSettings::getInstance().showCocoonAiButtonInMessageField()
-		|| session().appConfig().aiComposeStyles().empty()) {
-		return false;
-	}
-	const auto &style = _field->st().style;
-	const auto lineHeight = style.lineHeight
-		? style.lineHeight
-		: style.font->height;
-	const auto margins = _field->fullTextMargins();
-	const auto contentHeight = _field->height()
-		- margins.top()
-		- margins.bottom();
-	return contentHeight >= (3 * lineHeight);
+	return _history
+		&& !_voiceRecordBar->isActive()
+		&& Ui::HasEnoughLinesForAi(&session(), _field);
 }
 
 void HistoryWidget::updateAiButtonVisibility() {

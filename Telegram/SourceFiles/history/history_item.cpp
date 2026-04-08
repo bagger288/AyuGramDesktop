@@ -4113,16 +4113,9 @@ FullReplyTo HistoryItem::replyTo() const {
 	return result;
 }
 
-void HistoryItem::setText(const TextWithEntities &textWithEntities) {
-	auto text = textWithEntities;
-	const auto &settings = AyuSettings::getInstance();
-	if (settings.filterZalgo()) {
-		text.text = filterZalgo(text.text);
-	}
-
-	applyLocalPremiumEmoji(text);
-
-	for (const auto &entity : text.entities) {
+void HistoryItem::detectTextLinks(
+		const TextWithEntities &textWithEntities) {
+	for (const auto &entity : textWithEntities.entities) {
 		auto type = entity.type();
 		if (type == EntityType::Url
 			|| type == EntityType::CustomUrl
@@ -4133,6 +4126,18 @@ void HistoryItem::setText(const TextWithEntities &textWithEntities) {
 			break;
 		}
 	}
+}
+
+void HistoryItem::setText(const TextWithEntities &textWithEntities) {
+	auto text = textWithEntities;
+	const auto &settings = AyuSettings::getInstance();
+	if (settings.filterZalgo()) {
+		text.text = filterZalgo(text.text);
+	}
+
+	applyLocalPremiumEmoji(text);
+
+	detectTextLinks(text);
 	setTextValue((_media && _media->consumeMessageText(text))
 		? TextWithEntities()
 		: std::move(text));
@@ -4149,6 +4154,13 @@ void HistoryItem::setTextValue(TextWithEntities text, bool force) {
 	if (had || force) {
 		history()->owner().requestItemTextRefresh(this);
 	}
+}
+
+void HistoryItem::setTextStreaming(TextWithEntities text) {
+	detectTextLinks(text);
+	_text = std::move(text);
+	RemoveComponents(HistoryMessageTranslation::Bit());
+	history()->owner().requestItemTextRefreshStreaming(this);
 }
 
 bool HistoryItem::inHighlightProcess() const {

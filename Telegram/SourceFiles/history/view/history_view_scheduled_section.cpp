@@ -1472,7 +1472,8 @@ void ScheduledWidget::listMarkContentsRead(
 }
 
 MessagesBarData ScheduledWidget::listMessagesBar(
-		const std::vector<not_null<Element*>> &elements) {
+		const std::vector<not_null<Element*>> &elements,
+		bool markLastAsRead) {
 	return {};
 }
 
@@ -1751,7 +1752,6 @@ bool ShowScheduledVideoPublished(
 		widget.get(),
 		rpl::single(view),
 		st::processingVideoView);
-	button->setTextTransform(Ui::RoundButton::TextTransform::NoTransform);
 	button->show();
 	rpl::combine(
 		widget->sizeValue(),
